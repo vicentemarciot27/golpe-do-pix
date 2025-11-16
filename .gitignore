@@ -51,6 +51,10 @@ coverage.xml
 .pytest_cache/
 cover/
 
+# Test results (JSON files)
+tests/results/*.json
+!tests/results/.gitkeep
+
 # Translations
 *.mo
 *.pot

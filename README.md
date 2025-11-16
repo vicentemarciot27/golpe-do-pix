@@ -3,11 +3,11 @@
 Coleção de serviços que ajudam a analisar oportunidades de venda e tributação envolvendo Mercado Livre e Receita Federal.
 
 ## Apps
-- `apps/max-bid`: calcula o maior lance que ainda mantém a margem desejada.
-- `apps/ml-prices`: analisa preços do Mercado Livre usando regex, filtros e LLMs.
-- `apps/rfb-auction-lots`: lista e normaliza lotes de leilões da Receita Federal.
-- `apps/rfb-ncm`: devolve dados tributários por NCM (com fallback configurável).
-- `apps/ncm-classifier`: classifica descrições livres no NCM correto via LLMs.
+- `apps/max_bid`: calcula o maior lance que ainda mantém a margem desejada.
+- `apps/ml_prices`: analisa preços do Mercado Livre usando regex, filtros e LLMs.
+- `apps/rfb_auction_lots`: lista e normaliza lotes de leilões da Receita Federal.
+- `apps/rfb_ncm`: devolve dados tributários por NCM (com fallback configurável).
+- `apps/ncm_classifier`: classifica descrições livres no NCM correto via LLMs.
 
 ## Pastas de suporte
 - `shared/`: portas (interfaces) e adaptadores (implementações) seguindo arquitetura hexagonal, com foco na porta de data-source que abstrai diferentes formas de persistência (filesystem, database, etc).
@@ -32,9 +32,21 @@ DATA_DB_CONNECTION_STRING=your-database-connection-string
 ```
 
 ```
-# apps/ml-prices/.env.example
+# apps/ml_prices/.env.example
 ML_PRICES_FEATURE_REGEX=true
 ML_PRICES_LLM_PROVIDER=bedrock
 ```
 
 Cada diretório possui um README curto com o estado atual e próximos passos.
+
+## Test etiquette
+Test folder structure should mirror `apps/` up to the first subdirectory level.
+
+**Example**:  
+`tests/unit/ml_prices/scrapers/` is the deepest allowed folder nesting.  
+Deeper nesting (such as `tests/unit/ml_prices/scrapers/offers/`) is **not permitted**.
+
+Test types should include:
+- unit
+- integration
+- end-to-end

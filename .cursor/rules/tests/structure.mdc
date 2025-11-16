@@ -1,0 +1,13 @@
+---
+alwaysApply: true
+---
+Test folder structure should mirror `apps/` up to the first subdirectory level.
+
+**Example**:  
+`tests/unit/ml_prices/scrapers/` is the deepest allowed folder nesting.  
+Deeper nesting (such as `tests/unit/ml_prices/scrapers/offers/`) is **not permitted**.
+
+Test types should include:
+- unit
+- integration
+- end-to-end

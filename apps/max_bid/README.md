@@ -9,4 +9,4 @@ Max Bid é o motor que estima o maior lance que ainda vale a pena ofertar ao ven
 
 ## Próximos passos
 - Integrar dados de custos vindos de `shared`.
-- Expôr a API/CLI básica para ser usada por `ml-prices`.
+- Expôr a API/CLI básica para ser usada por `ml_prices`.
