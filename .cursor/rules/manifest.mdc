@@ -1,0 +1,10 @@
+---
+alwaysApply: true
+---
+Golpe do Pix é uma coleção de serviços independentes que analisam oportunidades de venda e tributação envolvendo Mercado Livre e Receita Federal, organizados em `apps/` (max-bid, ml-prices, rfb-auction-lots, rfb-ncm, ncm-classifier) com código compartilhado em `shared/` e configurações centralizadas em `config/`. O projeto segue arquitetura hexagonal, onde `shared/` contém portas (interfaces) e adaptadores (implementações), sendo a principal porta a de data-source que abstrai diferentes formas de persistência (filesystem, database, etc). A comunicação entre os apps ocorre através dessas portas, permitindo que cada serviço leia e escreva dados sem acoplamento a implementações específicas.
+
+max-bid: data-source -> Calcula maior lance mantendo margem
+ml-prices: Analisa preços do Mercado Livre -> data-source
+rfb-auction-lots: Consulta lotes de leilões RFB -> data-source
+rfb-ncm: Retorna dados tributários por NCM -> data-source
+ncm-classifier: Classifica descrições no NCM correto -> data-source

@@ -10,8 +10,11 @@ Coleção de serviços que ajudam a analisar oportunidades de venda e tributaç�
 - `apps/ncm-classifier`: classifica descrições livres no NCM correto via LLMs.
 
 ## Pastas de suporte
-- `shared/`: contratos, clientes e utilidades compartilhadas.
+- `shared/`: portas (interfaces) e adaptadores (implementações) seguindo arquitetura hexagonal, com foco na porta de data-source que abstrai diferentes formas de persistência (filesystem, database, etc).
 - `config/`: presets de ambiente e padrões de configuração (@README.md).
+
+## Arquitetura
+O projeto segue arquitetura hexagonal, onde a comunicação entre apps ocorre através de portas definidas em `shared/`, permitindo que cada serviço leia e escreva dados sem acoplamento a implementações específicas de persistência.
 
 ## .env etiquette
 - Centralize variáveis comuns em `config/.env.example` (copie para `.env` e mantenha fora do git via `.env.local`).
@@ -24,7 +27,8 @@ Coleção de serviços que ajudam a analisar oportunidades de venda e tributaç�
 # config/.env.example
 ML_APP_ID=your-app-id
 ML_APP_SECRET=replace-me
-SHARED_DB_URL=postgres://user:pass@host:5432/ml_shared
+DATA_SOURCE_TYPE=database
+DATA_DB_CONNECTION_STRING=your-database-connection-string
 ```
 
 ```
