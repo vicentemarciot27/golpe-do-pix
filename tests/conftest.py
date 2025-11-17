@@ -2,13 +2,14 @@
 # -*- coding: utf-8 -*-
 
 """
-Pytest configuration and shared fixtures.
-Primarily focused on integration test support.
+Pytest root configuration and shared fixtures.
+This file contains only infrastructure fixtures that are app-agnostic.
+App-specific fixtures should be defined in their respective conftest.py files.
 """
 
 import sys
 from pathlib import Path
-from typing import Generator, Dict, Any, List
+from typing import Generator, Any
 
 import pytest
 from playwright.sync_api import sync_playwright, Browser, BrowserContext, Page
@@ -121,9 +122,14 @@ def browser(playwright_instance) -> Generator[Browser, None, None]:
     """
     Session-scoped browser instance.
     Launches browser once and reuses it across tests.
+    Defaults to headless=True for CI/CD compatibility.
+    Override in app-specific conftest if needed.
     """
+    import os
+    headless = os.environ.get("PLAYWRIGHT_HEADLESS", "true").lower() == "true"
+    
     browser = playwright_instance.chromium.launch(
-        headless=True,
+        headless=headless,
         args=[
             "--no-sandbox",
             "--disable-dev-shm-usage",
@@ -186,6 +192,62 @@ def pytest_configure(config):
     )
 
 
+def pytest_sessionstart(session):
+    """Print all configurations when test session starts."""
+    import os
+    
+    print("\n" + "=" * 80)
+    print("🚀 PYTEST CONFIGURATION - Root conftest.py")
+    print("=" * 80)
+    
+    # Print environment info
+    print(f"\n🌍 ENVIRONMENT:")
+    headless = os.environ.get("PLAYWRIGHT_HEADLESS", "true")
+    print(f"   • PLAYWRIGHT_HEADLESS: {headless} {'← Browser hidden' if headless == 'true' else '← Browser visible'}")
+    
+    # Print available fixtures (root level only)
+    print(f"\n🔧 ROOT-LEVEL FIXTURES (app-agnostic):")
+    fixtures_info = [
+        ("playwright_instance", "Session-scoped Playwright instance"),
+        ("browser", "Session-scoped browser instance"),
+        ("browser_context", "Function-scoped browser context"),
+        ("browser_page", "Function-scoped browser page"),
+        ("results", "TestResultsStorage for saving test results"),
+    ]
+    for name, desc in fixtures_info:
+        print(f"   • {name}: {desc}")
+    
+    print(f"\n   ℹ️  App-specific fixtures are defined in tests/{{integration|unit}}/{{app_name}}/conftest.py")
+    
+    # Print configured markers
+    print(f"\n🏷️  CONFIGURED MARKERS:")
+    markers_info = [
+        ("integration", "Integration tests (auto-marked for tests/integration/)"),
+        ("unit", "Unit tests (auto-marked for tests/unit/)"),
+        ("slow", "Slow running tests"),
+        ("requires_network", "Tests requiring network access"),
+        ("asyncio", "Async tests"),
+    ]
+    for marker, desc in markers_info:
+        print(f"   • {marker}: {desc}")
+    
+    # Print results directory
+    print(f"\n💾 RESULTS STORAGE:")
+    results_dir = ROOT_DIR / "tests" / "results"
+    print(f"   • Directory: {results_dir}")
+    print(f"   • Exists: {results_dir.exists()}")
+    
+    # Print project structure info
+    print(f"\n📁 PROJECT STRUCTURE:")
+    print(f"   • Root: {ROOT_DIR}")
+    print(f"   • Tests: {ROOT_DIR / 'tests'}")
+    print(f"   • Python path includes project root: {str(ROOT_DIR) in sys.path}")
+    
+    print("\n" + "=" * 80)
+    print("✅ Root configuration loaded successfully")
+    print("=" * 80 + "\n")
+
+
 def pytest_collection_modifyitems(config, items):
     """
     Automatically mark tests based on their location.
@@ -210,34 +272,9 @@ def pytest_collection_modifyitems(config, items):
 
 
 # =========================
-# HELPER FIXTURES
+# NOTE: App-specific fixtures have been moved to their respective conftest files:
+# - tests/integration/ml_prices/conftest.py
+# - tests/unit/ml_prices/conftest.py
+# - tests/integration/max_bid/conftest.py
+# - etc.
 # =========================
-@pytest.fixture
-def sample_search_terms() -> List[str]:
-    """
-    Provides a list of sample search terms for testing.
-    Useful for parameterized integration tests.
-    """
-    return [
-        "smartphone",
-        "notebook",
-        "mouse gamer",
-        "teclado mecânico",
-        "headset",
-        "monitor",
-        "webcam",
-        "ssd 1tb",
-    ]
-
-
-@pytest.fixture
-def ml_base_url() -> str:
-    """Provides the base URL for Mercado Livre Brazil."""
-    return "https://www.mercadolivre.com.br"
-
-
-@pytest.fixture
-def ml_search_url() -> str:
-    """Provides the search URL pattern for Mercado Livre Brazil."""
-    return "https://lista.mercadolivre.com.br/{search_term}"
-

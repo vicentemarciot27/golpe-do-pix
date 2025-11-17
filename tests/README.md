@@ -1,266 +1,271 @@
-# Tests
+# Test Architecture
 
-Test suite for Golpe do Pix project following pytest conventions.
+This document describes the test architecture for the `golpe-do-pix` project.
 
-## Structure
+## Directory Structure
 
 ```
 tests/
-├── conftest.py              # Shared fixtures and configuration
-├── unit/                    # Unit tests (fast, isolated)
-│   └── ml_prices/
-│       └── scrapers/
-│           └── playwright.py
-└── integration/             # Integration tests (slower, real dependencies)
-    └── ml_prices/
-        └── scrapers/
-            └── playwright.py
+├── conftest.py                          # Root-level, app-agnostic fixtures
+├── results/                             # Test results storage (JSON files)
+├── integration/
+│   ├── conftest.py                      # Integration-level fixtures (optional)
+│   ├── ml_prices/
+│   │   ├── conftest.py                  # ML Prices integration fixtures
+│   │   └── scrapers/
+│   │       └── test_playwright.py
+│   ├── max_bid/
+│   │   ├── conftest.py                  # Max Bid integration fixtures
+│   │   └── ...
+│   └── {other_apps}/
+│       ├── conftest.py
+│       └── ...
+└── unit/
+    ├── conftest.py                      # Unit-level fixtures (optional)
+    ├── ml_prices/
+    │   ├── conftest.py                  # ML Prices unit fixtures
+    │   └── ...
+    ├── max_bid/
+    │   ├── conftest.py                  # Max Bid unit fixtures
+    │   └── ...
+    └── {other_apps}/
+        ├── conftest.py
+        └── ...
 ```
 
-## Test Organization Rules
+## Architecture Principles
 
-- Test folder structure mirrors `apps/` up to the first subdirectory level
-- **Maximum nesting**: `tests/unit/ml_prices/scrapers/` ✅
-- **Not allowed**: `tests/unit/ml_prices/scrapers/offers/` ❌
+### 1. Separation of Concerns
 
-## Running Tests
+- **Root `conftest.py`**: Infrastructure fixtures (Playwright, browser, results storage)
+- **App-specific `conftest.py`**: App settings, scrapers, test data
 
-### Install dependencies
+### 2. Fixture Scoping
 
-```bash
-pip install -r requirements.txt
-playwright install chromium
+```python
+# Root fixtures (tests/conftest.py)
+- playwright_instance (session)   # Shared across all tests
+- browser (session)                # Shared across all tests
+- browser_context (function)       # New for each test
+- browser_page (function)          # New for each test
+- results (function)               # Results storage
+
+# App fixtures (tests/{type}/{app}/conftest.py)
+- {app}_settings (session/function)  # App-specific settings
+- {app}_scraper (function)           # App-specific components
+- sample_data (function)             # App-specific test data
 ```
 
-### Run all tests
+### 3. Settings Management
 
-```bash
-pytest
+Following the same pattern as `config/`:
+
+```python
+# Integration tests (slower, real scenarios)
+@pytest.fixture(scope="session")
+def ml_prices_settings() -> MLPricesSettings:
+    try:
+        return get_settings("config/.env.test")  # Priority 1: .env.test
+    except Exception:
+        return MLPricesSettings(                  # Priority 2: Defaults
+            pages_to_scrape=1,
+            headless=False,
+        )
+
+# Unit tests (fast, predictable)
+@pytest.fixture
+def ml_prices_settings() -> MLPricesSettings:
+    return MLPricesSettings(
+        pages_to_scrape=1,
+        headless=True,
+        page_load_timeout=10,
+    )
 ```
 
-### Run only unit tests (fast)
+## Adding a New App
 
-```bash
-pytest -m unit
+When adding a new app (e.g., `rfb_auction_lots`):
+
+### 1. Create Settings
+
+```python
+# config/rfb_auction_lots/settings.py
+class RFBAuctionLotsSettings(BaseSettings):
+    api_timeout: int = Field(default=30)
+    max_retries: int = Field(default=3)
+    
+    class Config:
+        env_prefix = "RFB_AUCTION_LOTS_"
 ```
 
-### Run only integration tests
+### 2. Create Test Directories
 
 ```bash
-pytest -m integration
+mkdir -p tests/integration/rfb_auction_lots
+mkdir -p tests/unit/rfb_auction_lots
+touch tests/integration/rfb_auction_lots/__init__.py
+touch tests/unit/rfb_auction_lots/__init__.py
 ```
 
-### Run tests with coverage
+### 3. Create Integration Fixtures
 
-```bash
-pytest --cov=apps --cov-report=html
+```python
+# tests/integration/rfb_auction_lots/conftest.py
+import pytest
+from config.rfb_auction_lots.settings import RFBAuctionLotsSettings, get_settings
+
+@pytest.fixture(scope="session")
+def rfb_settings() -> RFBAuctionLotsSettings:
+    try:
+        return get_settings("config/.env.test")
+    except Exception:
+        return RFBAuctionLotsSettings(
+            api_timeout=15,
+            max_retries=2,
+        )
+
+@pytest.fixture
+def sample_auction_ids() -> list:
+    return ["12345", "67890"]
 ```
 
-### Run specific test file
+### 4. Create Unit Fixtures
 
-```bash
-pytest tests/unit/ml_prices/scrapers/playwright.py
-```
+```python
+# tests/unit/rfb_auction_lots/conftest.py
+import pytest
+from config.rfb_auction_lots.settings import RFBAuctionLotsSettings
 
-### Run specific test
-
-```bash
-pytest tests/unit/ml_prices/scrapers/playwright.py::TestProdutoDataclass::test_produto_default_values
+@pytest.fixture
+def rfb_settings() -> RFBAuctionLotsSettings:
+    return RFBAuctionLotsSettings(
+        api_timeout=5,
+        max_retries=1,
+    )
 ```
 
 ## Test Markers
 
-Tests are automatically marked based on their location:
+Tests are automatically marked based on location:
 
-- `@pytest.mark.unit` - Unit tests (fast, no external dependencies)
-- `@pytest.mark.integration` - Integration tests (slower, real dependencies)
-- `@pytest.mark.slow` - Slow-running tests
-- `@pytest.mark.requires_network` - Tests requiring internet connection
+- `tests/integration/*` → `@pytest.mark.integration`, `@pytest.mark.requires_network`, `@pytest.mark.slow`
+- `tests/unit/*` → `@pytest.mark.unit`
 
-### Skip slow tests
+### Running Tests
 
 ```bash
-pytest -m "not slow"
-```
-
-### Skip tests requiring network
-
-```bash
-pytest -m "not requires_network"
-```
-
-## Results Storage
-
-The `results` fixture saves test data as JSON files for easy validation and debugging.
-
-### Using results in tests
-
-```python
-def test_scrape_products(results):
-    produtos = scrape_mercadolivre("smartphone", max_pages=1, headless=True)
-    
-    # Store results as JSON file
-    results.store("test_scrape_products", {
-        "produtos": produtos,
-        "count": len(produtos),
-        "search_term": "smartphone",
-    })
-    
-    assert len(produtos) > 0
-```
-
-### Viewing results after tests
-
-**Option 1: Interactive viewer (recommended)**
-
-```bash
-# Run tests first
+# All tests
 pytest
 
-# View results interactively
-python view_test_results.py
+# Only unit tests
+pytest -m unit
+
+# Only integration tests
+pytest -m integration
+
+# Specific app
+pytest tests/integration/ml_prices/
+pytest tests/unit/ml_prices/
+
+# With results storage
+pytest tests/integration/ml_prices/ -v
+# Results saved to: tests/results/
 ```
 
-**Option 2: Direct JSON access**
+## Environment Variables
+
+### Root Level (Infrastructure)
+
+- `PLAYWRIGHT_HEADLESS`: Control browser visibility (default: `true`)
+
+### App Level (Via Settings)
+
+Each app uses its own prefix (e.g., `ML_PRICES_`, `MAX_BID_`):
 
 ```bash
-# Results are saved in tests/results/
-ls tests/results/
+# Example: .env.test
+ML_PRICES_HEADLESS=false
+ML_PRICES_PAGES_TO_SCRAPE=1
+ML_PRICES_PAGE_LOAD_TIMEOUT=30
 
-# View a specific result
-cat tests/results/test_scrape_products_20250116_143022.json
-
-# Or use jq for pretty output
-cat tests/results/test_scrape_products_20250116_143022.json | jq
+MAX_BID_API_TIMEOUT=15
+MAX_BID_MAX_RETRIES=3
 ```
 
-**Option 3: Python**
+## Fixture Resolution Order
 
-```python
-import json
-from pathlib import Path
+Pytest loads fixtures in this order:
 
-# Read latest result
-results_dir = Path("tests/results")
-latest = max(results_dir.glob("*.json"), key=lambda p: p.stat().st_mtime)
+1. `tests/conftest.py` (root)
+2. `tests/{integration|unit}/conftest.py` (optional)
+3. `tests/{integration|unit}/{app}/conftest.py` (app-specific)
+4. Test file itself
 
-with open(latest) as f:
-    data = json.load(f)
-    print(f"Found {data['count']} products")
-```
-
-**File format**: `{test_name}_{timestamp}.json`
-
-## Fixtures
-
-### Playwright Fixtures (Integration Tests)
-
-- `playwright_instance` - Session-scoped Playwright instance
-- `browser` - Session-scoped browser (reused across tests)
-- `browser_context` - Function-scoped context (fresh per test)
-- `browser_page` - Function-scoped page (fresh per test)
-
-### Helper Fixtures
-
-- `results` - Results storage for validation
-- `sample_search_terms` - List of sample search terms
-- `ml_base_url` - Mercado Livre base URL
-- `ml_search_url` - Mercado Livre search URL pattern
-
-### Example usage
-
-```python
-def test_with_browser(browser_page, results):
-    """Integration test using real browser."""
-    browser_page.goto("https://www.mercadolivre.com.br")
-    title = browser_page.title()
-    
-    results.store("test_with_browser", {"title": title})
-    
-    assert "Mercado Livre" in title
-```
-
-## Writing New Tests
-
-### Unit Tests
-
-- Test individual functions in isolation
-- Use mocks for external dependencies
-- Should be fast (< 1 second per test)
-- No network or file system access
-
-```python
-from unittest.mock import Mock
-
-def test_parse_card():
-    """Unit test with mocked dependencies."""
-    mock_card = Mock()
-    mock_card.query_selector.return_value = None
-    
-    produto = parse_card(mock_card)
-    
-    assert produto.titulo == "N/A"
-```
-
-### Integration Tests
-
-- Test real functionality end-to-end
-- Use real dependencies (browser, network)
-- Can be slower (acceptable up to 30s per test)
-- Store results for validation
-
-```python
-def test_real_scraping(results):
-    """Integration test with real scraping."""
-    produtos = scrape_mercadolivre("notebook", max_pages=1, headless=True)
-    
-    results.store("test_real_scraping", {
-        "produtos": produtos,
-        "count": len(produtos),
-    })
-    
-    assert len(produtos) > 0
-```
+Fixtures in lower levels can override fixtures from higher levels (same name).
 
 ## Best Practices
 
-1. **Use descriptive test names** - `test_scrape_single_page` not `test_1`
-2. **One assertion per concept** - Test one thing at a time
-3. **Use fixtures** - Reuse setup code via fixtures
-4. **Store integration results** - Use `results` fixture for validation
-5. **Mark slow tests** - Help others skip slow tests during development
-6. **Document complex tests** - Add docstrings explaining what's being tested
+1. **Keep root `conftest.py` app-agnostic**: Only infrastructure fixtures
+2. **Use consistent naming**: `{app}_settings`, `{app}_scraper`, `{app}_client`
+3. **Integration vs Unit**:
+   - Integration: Real scenarios, slower, network access
+   - Unit: Fast, isolated, mocked dependencies
+4. **Settings priority**: `.env.test` > env vars > code defaults
+5. **Results storage**: Use `results` fixture to save test data for debugging
 
-## Continuous Integration
+## Migration Guide
 
-Tests are designed to run in CI/CD pipelines:
+When migrating existing tests:
 
-- Unit tests run on every commit (fast feedback)
-- Integration tests run on pull requests (thorough validation)
-- Results are stored for analysis and debugging
+1. Move app-specific fixtures to `tests/{type}/{app}/conftest.py`
+2. Update fixture names to avoid conflicts (e.g., `test_settings` → `ml_prices_settings`)
+3. Update test imports if needed
+4. Verify tests still pass: `pytest tests/`
+
+## Examples
+
+### Integration Test
+
+```python
+# tests/integration/ml_prices/scrapers/test_search.py
+def test_search_products(ml_scraper, results):
+    products = ml_scraper.search("smartphone", max_pages=1)
+    
+    results.store("test_search_products", {
+        "products": products,
+        "count": len(products)
+    })
+    
+    assert len(products) > 0
+```
+
+### Unit Test
+
+```python
+# tests/unit/ml_prices/scrapers/test_parser.py
+def test_parse_price(ml_prices_settings):
+    parser = PriceParser(ml_prices_settings)
+    result = parser.parse("R$ 1.234,56")
+    
+    assert result == 1234.56
+```
 
 ## Troubleshooting
 
-### Playwright browser not found
+### Fixture Not Found
 
-```bash
-playwright install chromium
-```
+- Check fixture name matches between conftest and test
+- Verify conftest.py is in correct location
+- Ensure `__init__.py` exists in all test directories
 
-### Tests timing out
+### Settings Not Loading
 
-Increase timeout in `config/ml_prices/settings.py`:
+- Check `.env.test` file location (`config/.env.test`)
+- Verify environment variable prefix matches settings class
+- Check `Config.env_prefix` in settings class
 
-```python
-page_load_timeout: int = 60  # Increase from 40
-explicit_wait: int = 30      # Increase from 20
-```
+### Browser Issues
 
-### Network errors in integration tests
-
-Integration tests require internet connection. Skip them if offline:
-
-```bash
-pytest -m "not requires_network"
-```
-
+- Set `PLAYWRIGHT_HEADLESS=false` to see browser
+- Check browser launch args in root `conftest.py`
+- Verify Playwright installation: `playwright install chromium`

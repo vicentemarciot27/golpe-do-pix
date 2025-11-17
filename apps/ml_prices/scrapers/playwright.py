@@ -16,10 +16,12 @@ Execute:
 
 import logging
 import os
+import platform
+import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional, Set
+from typing import List, Optional, Set, TYPE_CHECKING, Any
 
 from playwright.sync_api import (
     sync_playwright,
@@ -27,21 +29,15 @@ from playwright.sync_api import (
     ElementHandle,
     TimeoutError as PlaywrightTimeoutError,
 )
-from pyvirtualdisplay import Display
+
+if TYPE_CHECKING:
+    from pyvirtualdisplay import Display
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from config.ml_prices.settings import settings
-
-# =========================
-# CONFIGURAÇÕES
-# =========================
-PAGES_TO_SCRAPE    = settings.pages_to_scrape
-PAGE_LOAD_TIMEOUT  = settings.page_load_timeout
-EXPLICIT_WAIT      = settings.explicit_wait
-HEADLESS           = settings.headless
+from config.ml_prices.settings import MLPricesSettings, get_settings
 
 # =========================
 # LOGGING
@@ -66,6 +62,7 @@ class Produto:
     frete: str = "N/A"
     avaliacao: float | None = None
     num_avaliacoes: int | None = None
+    num_vendidos: int | None = None
     variacoes: str = "N/A"
     imagem_url: str = "N/A"
 
@@ -75,6 +72,10 @@ class Produto:
 # -------------------------
 def is_running_in_container() -> bool:
     """Detecta se está rodando dentro de um container Docker."""
+    # Windows never runs in Linux containers
+    if platform.system() == "Windows":
+        return False
+    
     try:
         if os.path.exists("/.dockerenv"):
             return True
@@ -86,11 +87,11 @@ def is_running_in_container() -> bool:
         return False
 
 
-_virtual_display = None
+_virtual_display: Any = None
 
 
 def setup_virtual_display() -> None:
-    """Configura display virtual se necessário (apenas para containers)."""
+    """Configura display virtual se necessário (apenas para containers Linux)."""
     global _virtual_display
 
     if not is_running_in_container():
@@ -103,7 +104,6 @@ def setup_virtual_display() -> None:
     logger.info(f"📺 DISPLAY configurado: {display_var}")
 
     try:
-
         _virtual_display = Display(visible=0, size=(1280, 1024))
         _virtual_display.start()
         logger.info(f"✅ pyvirtualdisplay iniciado: {_virtual_display.display}")
@@ -128,75 +128,305 @@ def cleanup_virtual_display() -> None:
 
 
 # -------------------------
-# Helpers de página
+# Scraper Class
 # -------------------------
-def esperar_carregar(page: Page) -> None:
-    """Espera a página terminar de carregar."""
-    try:
-        page.wait_for_load_state("networkidle", timeout=EXPLICIT_WAIT * 1000)
-    except PlaywrightTimeoutError:
-        logger.info("⏱️ Timeout em networkidle, seguindo mesmo assim.")
-
-
-def aceitar_cookies(page: Page) -> None:
-    candidates = [
-        "button#onetrust-accept-btn-handler",
-        "button.cookie-consent-banner-opt-out__action",
-        "button:has-text('Aceitar')",
-        "button:has-text('Permitir')",
-    ]
-    for sel in candidates:
+class MercadoLivreScraper:
+    """
+    Mercado Livre scraper with dependency injection for settings.
+    
+    This class encapsulates all scraping logic and accepts configuration
+    through constructor injection, enabling easy testing and multiple
+    environment support.
+    
+    Example:
+        from config.ml_prices.settings import get_settings
+        
+        # Production
+        scraper = MercadoLivreScraper(get_settings())
+        produtos = scraper.scrape("smartphone", max_pages=3)
+        
+        # Testing
+        test_settings = get_settings("config/.env.test")
+        scraper = MercadoLivreScraper(test_settings)
+        produtos = scraper.scrape("smartphone", max_pages=1)
+    """
+    
+    def __init__(self, settings: MLPricesSettings):
+        """
+        Initialize scraper with settings.
+        
+        Args:
+            settings: Configuration instance with scraping parameters.
+        """
+        self.settings = settings
+        self._virtual_display: Any = None
+    
+    def esperar_carregar(self, page: Page) -> None:
+        """Espera a página terminar de carregar."""
         try:
-            btn = page.query_selector(sel)
-            if btn:
-                btn.click()
-                logger.info("Banner de cookies fechado.")
-                return
-        except Exception:
-            continue
+            page.wait_for_load_state("networkidle", timeout=self.settings.explicit_wait * 1000)
+        except PlaywrightTimeoutError:
+            logger.info("⏱️ Timeout em networkidle, seguindo mesmo assim.")
 
+    def aceitar_cookies(self, page: Page) -> None:
+        """Tenta aceitar o banner de cookies se presente."""
+        candidates = [
+            "button#onetrust-accept-btn-handler",
+            "button.cookie-consent-banner-opt-out__action",
+            "button:has-text('Aceitar')",
+            "button:has-text('Permitir')",
+        ]
+        for sel in candidates:
+            try:
+                btn = page.query_selector(sel)
+                if btn:
+                    btn.click()
+                    logger.info("Banner de cookies fechado.")
+                    return
+            except Exception:
+                continue
 
-def abrir_pagina_busca(page: Page, termo: str) -> str:
-    termo_formatado = termo.strip().replace(" ", "-").lower()
-    url = f"https://lista.mercadolivre.com.br/{termo_formatado}"
-    logger.info(f"Acessando: {url}")
-    page.goto(url, wait_until="load", timeout=PAGE_LOAD_TIMEOUT * 1000)
-    esperar_carregar(page)
-    aceitar_cookies(page)
-    logger.info(f"URL atual: {page.url}")
-    return page.url
+    def abrir_pagina_busca(self, page: Page, termo: str) -> str:
+        """Abre a página de busca do Mercado Livre."""
+        termo_formatado = termo.strip().replace(" ", "-").lower()
+        url = f"https://lista.mercadolivre.com.br/{termo_formatado}"
+        logger.info(f"Acessando: {url}")
+        page.goto(url, wait_until="load", timeout=self.settings.page_load_timeout * 1000)
+        self.esperar_carregar(page)
+        self.aceitar_cookies(page)
+        logger.info(f"URL atual: {page.url}")
+        return page.url
 
+    def obter_cards(self, page: Page) -> List[ElementHandle]:
+        """Retorna lista de cards de produto na página."""
+        sel_list_item = "li.ui-search-layout__item"
+        alt_wrappers = [
+            "div.ui-search-result__content-wrapper",
+            "div.poly-card__content",
+        ]
 
-def obter_cards(page: Page) -> List[ElementHandle]:
-    """Retorna lista de cards de produto na página."""
-    sel_list_item = "li.ui-search-layout__item"
-    alt_wrappers = [
-        "div.ui-search-result__content-wrapper",
-        "div.poly-card__content",
-    ]
-
-    # tenta primeiro o layout principal
-    try:
-        page.wait_for_selector(sel_list_item, timeout=EXPLICIT_WAIT * 1000)
-        cards = page.query_selector_all(sel_list_item)
-        if cards:
-            return cards
-    except PlaywrightTimeoutError:
-        pass
-
-    # fallbacks
-    for css in alt_wrappers:
+        # tenta primeiro o layout principal
         try:
-            page.wait_for_selector(css, timeout=EXPLICIT_WAIT * 1000)
-            cards = page.query_selector_all(css)
+            page.wait_for_selector(sel_list_item, timeout=self.settings.explicit_wait * 1000)
+            cards = page.query_selector_all(sel_list_item)
             if cards:
                 return cards
         except PlaywrightTimeoutError:
-            continue
+            pass
 
-    return []
+        # fallbacks
+        for css in alt_wrappers:
+            try:
+                page.wait_for_selector(css, timeout=self.settings.explicit_wait * 1000)
+                cards = page.query_selector_all(css)
+                if cards:
+                    return cards
+            except PlaywrightTimeoutError:
+                continue
+
+        return []
+
+    def pagina_atual_num(self, page: Page) -> Optional[int]:
+        """Retorna o número da página atual lendo aria-current."""
+        try:
+            val = page.evaluate(
+                """() => {
+                    const el = document.querySelector(
+                        'li.andes-pagination__button--current a[aria-current="page"]'
+                    );
+                    return el ? el.textContent.trim() : null;
+                }"""
+            )
+            return int(val) if val else None
+        except Exception:
+            return None
+
+    def tem_proxima_pagina(self, page: Page) -> bool:
+        """True se existir botão 'Seguinte' habilitado."""
+        try:
+            return page.evaluate(
+                """() => !!document.querySelector(
+                    'li.andes-pagination__button--next:not(.andes-pagination__button--disabled) a.andes-pagination__link'
+                )"""
+            )
+        except Exception:
+            return False
+
+    def ir_para_proxima_pagina(self, page: Page) -> bool:
+        """Clica em 'Seguinte' e espera a troca de página."""
+        old_url = page.url
+        old_page = self.pagina_atual_num(page) or 0
+
+        for _ in range(3):  # pequenas tentativas contra race condition de DOM
+            ok = page.evaluate(
+                """() => {
+                    const sel = 'li.andes-pagination__button--next:not(.andes-pagination__button--disabled) a.andes-pagination__link';
+                    const a = document.querySelector(sel);
+                    if (!a) return false;
+                    a.scrollIntoView({block: 'center'});
+                    a.click();
+                    return true;
+                }"""
+            )
+            if not ok:
+                return False
+
+            try:
+                page.wait_for_load_state("load", timeout=self.settings.explicit_wait * 1000)
+            except PlaywrightTimeoutError:
+                pass
+
+            # Pequeno delay adicional
+            page.wait_for_timeout(500)
+
+            new_page = self.pagina_atual_num(page) or 0
+            if page.url != old_url or new_page > old_page:
+                self.esperar_carregar(page)
+                self.aceitar_cookies(page)
+                return True
+
+        return False
+
+    def setup_virtual_display(self) -> None:
+        """Configura display virtual se necessário (apenas para containers Linux)."""
+        if not is_running_in_container():
+            logger.info("💻 Ambiente local detectado - usando display do sistema")
+            return
+
+        logger.info("🐳 Ambiente container detectado - configurando display virtual Xvfb")
+
+        display_var = os.environ.get("DISPLAY", ":99")
+        logger.info(f"📺 DISPLAY configurado: {display_var}")
+
+        try:
+            self._virtual_display = Display(visible=0, size=(1280, 1024))
+            self._virtual_display.start()
+            logger.info(f"✅ pyvirtualdisplay iniciado: {self._virtual_display.display}")
+        except ImportError:
+            logger.info("ℹ️ pyvirtualdisplay não disponível - assumindo Xvfb externo")
+        except Exception as e:
+            logger.warning(f"⚠️ Erro ao iniciar pyvirtualdisplay: {e}")
+            logger.info("ℹ️ Continuando com Xvfb do sistema (se disponível)")
+
+    def cleanup_virtual_display(self) -> None:
+        """Desliga display virtual se foi criado."""
+        if self._virtual_display:
+            try:
+                self._virtual_display.stop()
+                logger.info("🧹 Display virtual limpo")
+            except Exception as e:
+                logger.warning(f"⚠️ Erro ao limpar display virtual: {e}")
+            finally:
+                self._virtual_display = None
+
+    def scrape(
+        self,
+        termo_busca: str,
+        max_pages: Optional[int] = None,
+    ) -> List[Produto]:
+        """
+        Scrape Mercado Livre for products.
+        
+        Args:
+            termo_busca: Search term.
+            max_pages: Maximum pages to scrape. If None, uses settings default.
+            
+        Returns:
+            List of scraped products.
+        """
+        if max_pages is None:
+            max_pages = self.settings.pages_to_scrape
+        
+        logger.info(f"Iniciando scraping via Playwright para: {termo_busca!r}")
+
+        produtos: List[Produto] = []
+        vistos: Set[str] = set()  # deduplicação por URL
+
+        self.setup_virtual_display()
+
+        try:
+            with sync_playwright() as p:
+                launch_args = [
+                    "--no-sandbox",
+                    "--disable-dev-shm-usage",
+                    "--disable-gpu",
+                    "--window-size=1280,1024",
+                    "--disable-blink-features=AutomationControlled",
+                ]
+                if is_running_in_container():
+                    launch_args.extend([
+                        "--disable-background-networking",
+                        "--disable-background-timer-throttling",
+                        "--disable-renderer-backgrounding",
+                        "--disable-features=VizDisplayCompositor",
+                    ])
+
+                logger.info(f"🌐 Lançando navegador (headless={self.settings.headless}, OS={platform.system()})")
+                browser = p.chromium.launch(headless=self.settings.headless, args=launch_args)
+                logger.info("✅ Navegador lançado com sucesso")
+                context = browser.new_context(
+                    viewport={"width": 1280, "height": 1024},
+                    user_agent=(
+                        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                        "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                    ),
+                )
+                page = context.new_page()
+
+                self.abrir_pagina_busca(page, termo_busca)
+
+                pagina_atual = 1
+                while pagina_atual <= max_pages:
+                    # scroll leve para garantir lazy-load
+                    page.evaluate("window.scrollTo(0, 800);")
+                    page.wait_for_timeout(800)
+                    page.evaluate("window.scrollTo(0, 1600);")
+                    page.wait_for_timeout(800)
+
+                    cards = self.obter_cards(page)
+                    logger.info(f"[Página {pagina_atual}] Encontrados {len(cards)} cards.")
+
+                    coletados = 0
+                    for card in cards:
+                        try:
+                            produto = parse_card(card)
+                            if produto.url and produto.url != "N/A":
+                                if produto.url in vistos:
+                                    continue
+                                vistos.add(produto.url)
+                            produtos.append(produto)
+                            coletados += 1
+                        except Exception as e:
+                            logger.warning(
+                                f"Falha ao processar card na página {pagina_atual}: {e}"
+                            )
+
+                    logger.info(f"[Página {pagina_atual}] Coletados {coletados} itens.")
+
+                    if pagina_atual >= max_pages:
+                        break
+                    if not self.tem_proxima_pagina(page):
+                        logger.info("Não há mais páginas. Encerrando.")
+                        break
+                    if not self.ir_para_proxima_pagina(page):
+                        logger.info("Falha ao avançar para a próxima página. Encerrando.")
+                        break
+
+                    pagina_atual += 1
+
+                browser.close()
+                return produtos
+
+        except Exception as e:
+            logger.error(f"Erro durante o scraping: {e}", exc_info=True)
+            return []
+        finally:
+            self.cleanup_virtual_display()
 
 
+# -------------------------
+# Helper Functions (Stateless)
+# -------------------------
 def extrair_texto_safe(
     el: ElementHandle,
     selector: str,
@@ -251,14 +481,45 @@ def parse_card(card: ElementHandle) -> Produto:
         or "N/A"
     )
 
-    rating_txt = (
-        extrair_texto_safe(card, "span.poly-reviews__rating")
-        or extrair_texto_safe(card, "span.ui-search-reviews__rating-number")
-    )
+    # Extract rating and sold count from review container
+    review_container_txt = extrair_texto_safe(card, "span.poly-component__review-compacted")
+    rating_txt = None
+    vendidos_txt = None
+    
+    if review_container_txt and "|" in review_container_txt:
+        # Split by "|" to separate rating and sold count
+        parts = review_container_txt.split("|")
+        rating_txt = parts[0].strip() if parts else None
+        vendidos_txt = parts[1].strip() if len(parts) > 1 else None
+    else:
+        # Fallback to individual selectors
+        rating_txt = (
+            extrair_texto_safe(card, "span.poly-component__review-compacted span.poly-phrase-label")
+            or extrair_texto_safe(card, "span.poly-reviews__rating")
+            or extrair_texto_safe(card, "span.ui-search-reviews__rating-number")
+        )
+        # If we got multiple spans, extract just the first number (rating)
+        if rating_txt and "|" in rating_txt:
+            rating_txt = rating_txt.split("|")[0].strip()
+    
     try:
         p.avaliacao = float(rating_txt.replace(",", ".")) if rating_txt else None
     except Exception:
         p.avaliacao = None
+
+    # Extract number of sold items
+    if vendidos_txt:
+        try:
+            # Extract number from strings like "+5 vendidos", "5 vendidos", "+100 vendidos"
+            match = re.search(r'\+?(\d+)', vendidos_txt)
+            if match:
+                p.num_vendidos = int(match.group(1))
+            else:
+                p.num_vendidos = None
+        except Exception:
+            p.num_vendidos = None
+    else:
+        p.num_vendidos = None
 
     total_txt = (
         extrair_texto_safe(card, "span.poly-reviews__total")
@@ -288,164 +549,98 @@ def parse_card(card: ElementHandle) -> Produto:
 
 
 # -------------------------
-# Paginação
-# -------------------------
-def pagina_atual_num(page: Page) -> Optional[int]:
-    """Retorna o número da página atual lendo aria-current."""
-    try:
-        val = page.evaluate(
-            """() => {
-                const el = document.querySelector(
-                    'li.andes-pagination__button--current a[aria-current="page"]'
-                );
-                return el ? el.textContent.trim() : null;
-            }"""
-        )
-        return int(val) if val else None
-    except Exception:
-        return None
-
-
-def tem_proxima_pagina(page: Page) -> bool:
-    """True se existir botão 'Seguinte' habilitado."""
-    try:
-        return page.evaluate(
-            """() => !!document.querySelector(
-                'li.andes-pagination__button--next:not(.andes-pagination__button--disabled) a.andes-pagination__link'
-            )"""
-        )
-    except Exception:
-        return False
-
-
-def ir_para_proxima_pagina(page: Page) -> bool:
-    """Clica em 'Seguinte' e espera a troca de página."""
-    old_url = page.url
-    old_page = pagina_atual_num(page) or 0
-
-    for _ in range(3):  # pequenas tentativas contra race condition de DOM
-        ok = page.evaluate(
-            """() => {
-                const sel = 'li.andes-pagination__button--next:not(.andes-pagination__button--disabled) a.andes-pagination__link';
-                const a = document.querySelector(sel);
-                if (!a) return false;
-                a.scrollIntoView({block: 'center'});
-                a.click();
-                return true;
-            }"""
-        )
-        if not ok:
-            return False
-
-        try:
-            page.wait_for_load_state("load", timeout=EXPLICIT_WAIT * 1000)
-        except PlaywrightTimeoutError:
-            pass
-
-        # Pequeno delay adicional
-        page.wait_for_timeout(500)
-
-        new_page = pagina_atual_num(page) or 0
-        if page.url != old_url or new_page > old_page:
-            esperar_carregar(page)
-            aceitar_cookies(page)
-            return True
-
-    return False
-
-
-# -------------------------
-# Scraper principal
+# Backward Compatibility Functions
 # -------------------------
 def scrape_mercadolivre(
     termo_busca: str,
     max_pages: int = 3,
     *,
-    headless: bool = False,
+    headless: bool = True,
+    settings: Optional[MLPricesSettings] = None,
 ) -> List[Produto]:
-    logger.info(f"Iniciando scraping via Playwright para: {termo_busca!r}")
+    """
+    Convenience function for backward compatibility.
+    
+    Args:
+        termo_busca: Search term.
+        max_pages: Maximum pages to scrape.
+        headless: Run in headless mode.
+        settings: Optional settings instance. If None, uses default settings.
+        
+    Returns:
+        List of scraped products.
+    """
+    if settings is None:
+        settings = get_settings()
+    
+    # Override headless if provided
+    if headless != settings.headless:
+        from dataclasses import replace
+        settings = MLPricesSettings(
+            pages_to_scrape=settings.pages_to_scrape,
+            headless=headless,
+            page_load_timeout=settings.page_load_timeout,
+            explicit_wait=settings.explicit_wait,
+        )
+    
+    scraper = MercadoLivreScraper(settings)
+    return scraper.scrape(termo_busca, max_pages)
 
-    produtos: List[Produto] = []
-    vistos: Set[str] = set()  # deduplicação por URL
 
-    setup_virtual_display()
+def abrir_pagina_busca(page: Page, termo: str, settings: Optional[MLPricesSettings] = None) -> str:
+    """Convenience function for backward compatibility."""
+    if settings is None:
+        settings = get_settings()
+    scraper = MercadoLivreScraper(settings)
+    return scraper.abrir_pagina_busca(page, termo)
 
-    try:
-        with sync_playwright() as p:
-            launch_args = [
-                "--no-sandbox",
-                "--disable-dev-shm-usage",
-                "--disable-gpu",
-                "--window-size=1280,1024",
-                "--disable-blink-features=AutomationControlled",
-            ]
-            if is_running_in_container():
-                launch_args.extend([
-                    "--disable-background-networking",
-                    "--disable-background-timer-throttling",
-                    "--disable-renderer-backgrounding",
-                    "--disable-features=VizDisplayCompositor",
-                ])
 
-            browser = p.chromium.launch(headless=headless, args=launch_args)
-            context = browser.new_context(
-                viewport={"width": 1280, "height": 1024},
-                user_agent=(
-                    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-                    "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-                ),
-            )
-            page = context.new_page()
+def obter_cards(page: Page, settings: Optional[MLPricesSettings] = None) -> List[ElementHandle]:
+    """Convenience function for backward compatibility."""
+    if settings is None:
+        settings = get_settings()
+    scraper = MercadoLivreScraper(settings)
+    return scraper.obter_cards(page)
 
-            abrir_pagina_busca(page, termo_busca)
 
-            pagina_atual = 1
-            while pagina_atual <= max_pages:
-                # scroll leve para garantir lazy-load
-                page.evaluate("window.scrollTo(0, 800);")
-                page.wait_for_timeout(800)
-                page.evaluate("window.scrollTo(0, 1600);")
-                page.wait_for_timeout(800)
+def esperar_carregar(page: Page, settings: Optional[MLPricesSettings] = None) -> None:
+    """Convenience function for backward compatibility."""
+    if settings is None:
+        settings = get_settings()
+    scraper = MercadoLivreScraper(settings)
+    return scraper.esperar_carregar(page)
 
-                cards = obter_cards(page)
-                logger.info(f"[Página {pagina_atual}] Encontrados {len(cards)} cards.")
 
-                coletados = 0
-                for card in cards:
-                    try:
-                        produto = parse_card(card)
-                        if produto.url and produto.url != "N/A":
-                            if produto.url in vistos:
-                                continue
-                            vistos.add(produto.url)
-                        produtos.append(produto)
-                        coletados += 1
-                    except Exception as e:
-                        logger.warning(
-                            f"Falha ao processar card na página {pagina_atual}: {e}"
-                        )
+def aceitar_cookies(page: Page, settings: Optional[MLPricesSettings] = None) -> None:
+    """Convenience function for backward compatibility."""
+    if settings is None:
+        settings = get_settings()
+    scraper = MercadoLivreScraper(settings)
+    return scraper.aceitar_cookies(page)
 
-                logger.info(f"[Página {pagina_atual}] Coletados {coletados} itens.")
 
-                if pagina_atual >= max_pages:
-                    break
-                if not tem_proxima_pagina(page):
-                    logger.info("Não há mais páginas. Encerrando.")
-                    break
-                if not ir_para_proxima_pagina(page):
-                    logger.info("Falha ao avançar para a próxima página. Encerrando.")
-                    break
+def pagina_atual_num(page: Page, settings: Optional[MLPricesSettings] = None) -> Optional[int]:
+    """Convenience function for backward compatibility."""
+    if settings is None:
+        settings = get_settings()
+    scraper = MercadoLivreScraper(settings)
+    return scraper.pagina_atual_num(page)
 
-                pagina_atual += 1
 
-            browser.close()
-            return produtos
+def tem_proxima_pagina(page: Page, settings: Optional[MLPricesSettings] = None) -> bool:
+    """Convenience function for backward compatibility."""
+    if settings is None:
+        settings = get_settings()
+    scraper = MercadoLivreScraper(settings)
+    return scraper.tem_proxima_pagina(page)
 
-    except Exception as e:
-        logger.error(f"Erro durante o scraping: {e}", exc_info=True)
-        return []
-    finally:
-        cleanup_virtual_display()
+
+def ir_para_proxima_pagina(page: Page, settings: Optional[MLPricesSettings] = None) -> bool:
+    """Convenience function for backward compatibility."""
+    if settings is None:
+        settings = get_settings()
+    scraper = MercadoLivreScraper(settings)
+    return scraper.ir_para_proxima_pagina(page)
 
 
 # -------------------------
@@ -457,11 +652,9 @@ def main(search_term: str = "smartphone xiaomi"):
     Args:
         search_term: Search term to scrape (defaults to example value).
     """
-    produtos = scrape_mercadolivre(
-        search_term,
-        PAGES_TO_SCRAPE,
-        headless=HEADLESS,
-    )
+    settings = get_settings()
+    scraper = MercadoLivreScraper(settings)
+    produtos = scraper.scrape(search_term)
     logger.info(f"{len(produtos)} produtos coletados.")
     return produtos
 

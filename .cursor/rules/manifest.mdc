@@ -8,3 +8,8 @@ ml-prices: Analisa preços do Mercado Livre -> data-source
 rfb-auction-lots: Consulta lotes de leilões RFB -> data-source
 rfb-ncm: Retorna dados tributários por NCM -> data-source
 ncm-classifier: Classifica descrições no NCM correto -> data-source
+
+### Code guidelines
+- Use arquitetura hexagonal
+- Documentação não deve ser extensa (mais de 100 linhas por aquivo. Priorize consistência)
+- TODOS os imports devem ser feitos no header do arquivo. NUNCA no meio da lógica

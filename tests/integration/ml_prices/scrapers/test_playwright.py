@@ -37,12 +37,11 @@ from playwright.sync_api import sync_playwright
 class TestScrapeMercadoLivre:
     """Integration tests for the main scraping function."""
 
-    def test_scrape_single_page(self, results):
+    def test_scrape_single_page(self, ml_scraper, results):
         """Test scraping a single page of results."""
-        produtos = scrape_mercadolivre(
+        produtos = ml_scraper.scrape(
             termo_busca="smartphone",
             max_pages=1,
-            headless=True,
         )
         
         # Store results for validation
@@ -62,12 +61,11 @@ class TestScrapeMercadoLivre:
         assert primeiro_produto.url != "N/A", "Product should have a URL"
         assert primeiro_produto.preco != "N/A", "Product should have a price"
 
-    def test_scrape_multiple_pages(self, results):
+    def test_scrape_multiple_pages(self, ml_scraper, results):
         """Test scraping multiple pages of results."""
-        produtos = scrape_mercadolivre(
+        produtos = ml_scraper.scrape(
             termo_busca="notebook",
             max_pages=2,
-            headless=True,
         )
         
         # Store results for validation
@@ -85,12 +83,11 @@ class TestScrapeMercadoLivre:
         urls = [p.url for p in produtos if p.url != "N/A"]
         assert len(urls) == len(set(urls)), "All product URLs should be unique"
 
-    def test_scrape_with_special_characters(self, results):
+    def test_scrape_with_special_characters(self, ml_scraper, results):
         """Test scraping with search terms containing special characters."""
-        produtos = scrape_mercadolivre(
+        produtos = ml_scraper.scrape(
             termo_busca="smart tv 50\"",
             max_pages=1,
-            headless=True,
         )
         
         results.store("test_scrape_with_special_characters", {
@@ -100,12 +97,11 @@ class TestScrapeMercadoLivre:
         
         assert len(produtos) > 0, "Should handle special characters in search"
 
-    def test_scrape_with_spaces(self, results):
+    def test_scrape_with_spaces(self, ml_scraper, results):
         """Test scraping with search terms containing spaces."""
-        produtos = scrape_mercadolivre(
+        produtos = ml_scraper.scrape(
             termo_busca="fone de ouvido bluetooth",
             max_pages=1,
-            headless=True,
         )
         
         results.store("test_scrape_with_spaces", {
@@ -115,12 +111,11 @@ class TestScrapeMercadoLivre:
         
         assert len(produtos) > 0, "Should handle spaces in search terms"
 
-    def test_product_fields_populated(self, results):
+    def test_product_fields_populated(self, ml_scraper, results):
         """Test that scraped products have their fields properly populated."""
-        produtos = scrape_mercadolivre(
+        produtos = ml_scraper.scrape(
             termo_busca="mouse gamer",
             max_pages=1,
-            headless=True,
         )
         
         # Check that at least some products have various fields populated
@@ -230,7 +225,7 @@ class TestPageHelpers:
 class TestPaginationFlow:
     """Integration tests for pagination workflow."""
 
-    def test_pagination_workflow(self, results):
+    def test_pagination_workflow(self, ml_scraper, results):
         """Test complete pagination workflow across multiple pages."""
         import asyncio
         
@@ -241,16 +236,14 @@ class TestPaginationFlow:
         except RuntimeError:
             pass
         
-        produtos_pagina_1 = scrape_mercadolivre(
+        produtos_pagina_1 = ml_scraper.scrape(
             termo_busca="headset",
             max_pages=1,
-            headless=True,
         )
         
-        produtos_pagina_2 = scrape_mercadolivre(
+        produtos_pagina_2 = ml_scraper.scrape(
             termo_busca="headset",
             max_pages=2,
-            headless=True,
         )
         
         results.store("test_pagination_workflow", {
@@ -264,12 +257,11 @@ class TestPaginationFlow:
         assert len(produtos_pagina_2) > len(produtos_pagina_1), \
             "Scraping 2 pages should return more products than 1 page"
 
-    def test_deduplication_across_pages(self, results):
+    def test_deduplication_across_pages(self, ml_scraper, results):
         """Test that products are deduplicated across pages."""
-        produtos = scrape_mercadolivre(
+        produtos = ml_scraper.scrape(
             termo_busca="monitor",
             max_pages=2,
-            headless=True,
         )
         
         # Extract URLs
@@ -291,36 +283,33 @@ class TestPaginationFlow:
 class TestEdgeCases:
     """Integration tests for edge cases and error handling."""
 
-    def test_handles_no_results(self):
+    def test_handles_no_results(self, ml_scraper):
         """Test handling when search returns no results."""
         # Use a very specific/unlikely search term
-        produtos = scrape_mercadolivre(
+        produtos = ml_scraper.scrape(
             termo_busca="xyzabc123nonexistentproduct999",
             max_pages=1,
-            headless=True,
         )
         
         # Should return empty list or very few results
         assert isinstance(produtos, list)
 
-    def test_handles_max_pages_greater_than_available(self):
+    def test_handles_max_pages_greater_than_available(self, ml_scraper):
         """Test when requesting more pages than available."""
         # Use a very specific search that likely has few results
-        produtos = scrape_mercadolivre(
+        produtos = ml_scraper.scrape(
             termo_busca="produto muito específico raro",
             max_pages=10,  # Request many pages
-            headless=True,
         )
         
         # Should stop when no more pages available
         assert isinstance(produtos, list)
 
-    def test_handles_single_result_page(self):
+    def test_handles_single_result_page(self, ml_scraper):
         """Test scraping when only one page of results exists."""
-        produtos = scrape_mercadolivre(
+        produtos = ml_scraper.scrape(
             termo_busca="produto ultra específico único",
             max_pages=3,
-            headless=True,
         )
         
         # Should handle gracefully even if only 1 page exists
@@ -330,12 +319,11 @@ class TestEdgeCases:
 class TestProductDataQuality:
     """Integration tests for data quality of scraped products."""
 
-    def test_url_format(self, results):
+    def test_url_format(self, ml_scraper, results):
         """Test that product URLs have correct format."""
-        produtos = scrape_mercadolivre(
+        produtos = ml_scraper.scrape(
             termo_busca="livro",
             max_pages=1,
-            headless=True,
         )
         
         invalid_urls = []
@@ -359,12 +347,11 @@ class TestProductDataQuality:
                 assert "mercadolivre.com.br" in produto.url or "mercadolibre.com" in produto.url, \
                     f"URL should be from Mercado Livre: {produto.url}"
 
-    def test_price_format(self, results):
+    def test_price_format(self, ml_scraper, results):
         """Test that prices have reasonable format."""
-        produtos = scrape_mercadolivre(
+        produtos = ml_scraper.scrape(
             termo_busca="caneta",
             max_pages=1,
-            headless=True,
         )
         
         prices_with_digits = sum(
@@ -384,12 +371,11 @@ class TestProductDataQuality:
                 assert any(c.isdigit() for c in produto.preco), \
                     f"Price should contain digits: {produto.preco}"
 
-    def test_rating_range(self, results):
+    def test_rating_range(self, ml_scraper, results):
         """Test that ratings are within valid range."""
-        produtos = scrape_mercadolivre(
+        produtos = ml_scraper.scrape(
             termo_busca="caderno",
             max_pages=1,
-            headless=True,
         )
         
         ratings = [p.avaliacao for p in produtos if p.avaliacao is not None]
@@ -407,12 +393,11 @@ class TestProductDataQuality:
                 assert 0 <= produto.avaliacao <= 5, \
                     f"Rating should be between 0 and 5: {produto.avaliacao}"
 
-    def test_num_avaliacoes_positive(self, results):
+    def test_num_avaliacoes_positive(self, ml_scraper, results):
         """Test that number of reviews is positive."""
-        produtos = scrape_mercadolivre(
+        produtos = ml_scraper.scrape(
             termo_busca="mochila",
             max_pages=1,
-            headless=True,
         )
         
         num_avaliacoes = [p.num_avaliacoes for p in produtos if p.num_avaliacoes is not None]
@@ -429,12 +414,32 @@ class TestProductDataQuality:
                 assert produto.num_avaliacoes >= 0, \
                     f"Number of reviews should be non-negative: {produto.num_avaliacoes}"
 
-    def test_image_url_format(self, results):
+    def test_num_vendidos_positive(self, ml_scraper, results):
+        """Test that number of sold items is positive."""
+        produtos = ml_scraper.scrape(
+            termo_busca="mochila",
+            max_pages=1,
+        )
+        
+        num_vendidos = [p.num_vendidos for p in produtos if p.num_vendidos is not None]
+        
+        results.store("test_num_vendidos_positive", {
+            "produtos": produtos,
+            "num_vendidos": num_vendidos,
+            "total_sold": sum(num_vendidos) if num_vendidos else 0,
+            "avg_sold": sum(num_vendidos) / len(num_vendidos) if num_vendidos else None,
+        })
+        
+        for produto in produtos:
+            if produto.num_vendidos is not None:
+                assert produto.num_vendidos >= 0, \
+                    f"Number of sold items should be non-negative: {produto.num_vendidos}"
+
+    def test_image_url_format(self, ml_scraper, results):
         """Test that image URLs have correct format."""
-        produtos = scrape_mercadolivre(
+        produtos = ml_scraper.scrape(
             termo_busca="camiseta",
             max_pages=1,
-            headless=True,
         )
         
         valid_images = sum(
