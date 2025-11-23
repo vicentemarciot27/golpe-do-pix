@@ -176,6 +176,9 @@ def browser_page(browser_context: BrowserContext) -> Generator[Page, None, None]
 def pytest_configure(config):
     """Configure pytest with custom markers."""
     config.addinivalue_line(
+        "markers", "e2e: mark test as an end-to-end test"
+    )
+    config.addinivalue_line(
         "markers", "integration: mark test as an integration test"
     )
     config.addinivalue_line(
@@ -222,6 +225,7 @@ def pytest_sessionstart(session):
     # Print configured markers
     print(f"\n🏷️  CONFIGURED MARKERS:")
     markers_info = [
+        ("e2e", "End-to-end tests (auto-marked for tests/e2e/)"),
         ("integration", "Integration tests (auto-marked for tests/integration/)"),
         ("unit", "Unit tests (auto-marked for tests/unit/)"),
         ("slow", "Slow running tests"),
@@ -251,15 +255,22 @@ def pytest_sessionstart(session):
 def pytest_collection_modifyitems(config, items):
     """
     Automatically mark tests based on their location.
-    - tests/integration/* -> integration, requires_network
+    - tests/e2e/* -> e2e, requires_network, slow
+    - tests/integration/* -> integration, requires_network, slow
     - tests/unit/* -> unit
     """
     for item in items:
         # Get test file path relative to tests directory
         test_path = Path(item.fspath).relative_to(ROOT_DIR / "tests")
         
+        # Auto-mark e2e tests
+        if test_path.parts[0] == "e2e":
+            item.add_marker(pytest.mark.e2e)
+            item.add_marker(pytest.mark.requires_network)
+            item.add_marker(pytest.mark.slow)
+        
         # Auto-mark integration tests
-        if test_path.parts[0] == "integration":
+        elif test_path.parts[0] == "integration":
             item.add_marker(pytest.mark.integration)
             item.add_marker(pytest.mark.requires_network)
             item.add_marker(pytest.mark.slow)

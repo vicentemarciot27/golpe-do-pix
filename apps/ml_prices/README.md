@@ -2,7 +2,7 @@
 
 ML Prices coleta ofertas e retorna uma análise de preços no Mercado Livre.
 
-O Objeto que este módulo devolve, para todos os fins, será chamado de Offer
+O Objeto que este módulo devolve, para todos os fins, será chamado de Produto (product)
 
 ## Como funciona
 - Usa buscas (incluindo regex) para identificar anúncios relevantes.

@@ -1,0 +1,53 @@
+# PostgreSQL databases for golpe-do-pix project
+# 
+# Services:
+#   - db: Main application database (port 5435)
+#   - db_test: Test database for E2E tests (port 5436)
+#
+# Usage:
+#   docker-compose up -d           # Start all databases
+#   docker-compose up -d db        # Start only main database
+#   docker-compose up -d db_test   # Start only test database
+
+services:
+  # Main application database
+  db:
+    image: postgres:16
+    restart: always
+    container_name: golpe-pix-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: golpe_do_pix
+    ports:
+      - "5435:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Test database (isolated from main db)
+  db_test:
+    image: postgres:16
+    restart: always
+    container_name: golpe-pix-db-test
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: golpe_do_pix_test
+    ports:
+      - "5436:5432"
+    volumes:
+      - pgdata_test:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  pgdata:
+  pgdata_test:
