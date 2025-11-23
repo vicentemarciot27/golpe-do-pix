@@ -32,19 +32,22 @@ ML Prices -> Postgres
 
 Copie `config/.env.example` para `config/.env` (ou `.env.local`) e ajuste os valores abaixo conforme necessário.
 
-Variável | Descrição | Padrão
-ML_PRICES_PAGES_TO_SCRAPE | Quantas páginas iniciais serão scrapadas | 3
-ML_PRICES_HEADLESS | Define se o Playwright roda em modo headless (`true`/`false`) | false
-ML_PRICES_PAGE_LOAD_TIMEOUT | Timeout para carregamento de página (segundos) | 40
-ML_PRICES_EXPLICIT_WAIT | Timeout para esperas explícitas (segundos) | 20
+| Variável                          | Descrição                                                    | Padrão  |
+|------------------------------------|--------------------------------------------------------------|---------|
+| ML_PRICES_PAGES_TO_SCRAPE         | Quantas páginas iniciais serão scrapadas                     | 3       |
+| ML_PRICES_HEADLESS                | Define se o Playwright roda em modo headless (`true`/`false`) | false   |
+| ML_PRICES_PAGE_LOAD_TIMEOUT       | Timeout para carregamento de página (segundos)               | 40      |
+| ML_PRICES_EXPLICIT_WAIT           | Timeout para esperas explícitas (segundos)                   | 20      |
 
 **Nota**: O termo de busca (`search_term`) não é uma variável de ambiente, pois deve ser passado como parâmetro para cada chamada do scraper.
 
 Os demais filtros continuarão seguindo esta ordem quando forem introduzidos:
 
-Variável | Descrição
-ML_PRICES_MIN_PRICE | Preço mínimo a ser analisado
-ML_PRICES_MAX_PRICE | Preço máximo a ser analisado
-ML_PRICES_MAX_OFFERS_TO_RETURN | Quantos itens serão retornados, no máximo
-ML_PRICES_WRITE_SEARCH_QUERY_LLM_MODEL | Modelo que irá escrever a query de busca
-ML_PRICES_FILTER_LLM_MODEL | Qual modelo de LLM será responsável por filtrar
+| Variável                              | Descrição                                            |
+|----------------------------------------|------------------------------------------------------|
+| ML_PRICES_MIN_PRICE                   | Preço mínimo a ser analisado                         |
+| ML_PRICES_MAX_PRICE                   | Preço máximo a ser analisado                         |
+| ML_PRICES_MAX_OFFERS_TO_RETURN        | Quantos itens serão retornados, no máximo            |
+| ML_PRICES_WRITE_SEARCH_QUERY_LLM_MODEL| Modelo que irá escrever a query de busca             |
+| ML_PRICES_FILTER_LLM_MODEL            | Qual modelo de LLM será responsável por filtrar      |
+
