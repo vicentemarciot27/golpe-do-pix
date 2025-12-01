@@ -20,9 +20,9 @@ Max Bid é o motor que estima o maior lance que ainda vale a pena ofertar ao ven
 
 - seles_risk_buffer_rate: taxa de desconto que consideraremos para segurança com relação à receita esperada, começar com 10% e depois ajustamos baseado em modelo estatístico que consuma nosso track record de reembolsos, desvalorizações subtas, perdas e avarias. Deixar na db para podermos alterar facilmente.
 
-- sn_mode ("dev" ou "prod") e aliqsn. 
-    - If sn_mode=dev, aliqsn=4% (mínimo do anexo I da lcp 123, para faturamento de até BRL 15k/mês, deixar esse valor salvo no db para conseguirmos alterar mais facilmente, como no caso dos valores para ncm=0)
-    - If sn_mode=prod, então aliqsn[1] = fcst_rev * {[ (revenue_last_12months * aliq_anexo_I) - deducao_anexo_I] / revenue_last_12months}
+- sn_mode ("fixed" ou "varialbe") e aliqsn. 
+    - If sn_mode=fixed, aliqsn=4% (mínimo do anexo I da lcp 123, para faturamento de até BRL 15k/mês, deixar esse valor salvo no db para conseguirmos alterar mais facilmente, como no caso dos valores para ncm=0)
+    - If sn_mode=varialbe, então aliqsn[1] = fcst_rev * {[ (revenue_last_12months * aliq_anexo_I) - deducao_anexo_I] / revenue_last_12months}
         [1] -> aliqsn dependerá do faturamento esperado para o próximo mês (fcst_rev), precisaremos de um bom histórico de vendas e modelo estatístico para prever bem isso. aliq_anexo_I e deducao_anexo_I variam de acordo com a tabela abaixo:
 
         | Faixa       | Receita Bruta em 12 Meses (R$)            | Alíquota | Valor a Deduzir (R$) |
@@ -59,8 +59,8 @@ Max Bid é o motor que estima o maior lance que ainda vale a pena ofertar ao ven
    (Se o item tiver quantidade qty_item >1, multiplique: expected_rev = ml_price_avg × qty_item × (1 - sales_risk_buffer_rate). Assuma qty_item=1 se não especificado.)
 
 2. **Determinar aliqsn**:  
-   - Se sn_mode = "dev": aliqsn = 0.04  
-   - Se sn_mode = "prod":  
+   - Se sn_mode = "fixed": aliqsn = 0.04  
+   - Se sn_mode = "varialbe":  
      - Obtenha aliq_anexo_I e deducao_anexo_I da faixa com base em revenue_last_12months.  
      - aliqsn = [(revenue_last_12months × aliq_anexo_I - deducao_anexo_I) / revenue_last_12months]  
      (Isso é a alíquota efetiva %)
@@ -86,9 +86,9 @@ def calculate_max_bid_item(ml_price_avg, sales_risk_buffer_rate, sn_mode, revenu
     expected_rev = ml_price_avg * qty_item * (1 - sales_risk_buffer_rate)
     
     # Passo 2: aliqsn
-    if sn_mode == "dev":
+    if sn_mode == "fixed":
         aliqsn = 0.04
-    elif sn_mode == "prod":
+    elif sn_mode == "varialbe":
         # Determinar faixa (implemente lookup na tabela do DB com base em revenue_last_12months diretamente)
         aliq_anexo_I, deducao_anexo_I = get_faixa_from_db(revenue_last_12months)
         aliqsn = (revenue_last_12months * aliq_anexo_I - deducao_anexo_I) / revenue_last_12months if revenue_last_12months != 0 else 0
