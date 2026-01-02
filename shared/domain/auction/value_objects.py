@@ -14,6 +14,7 @@ class LotImage:
     # Identificação interna
     id: int | None = None      # ID interno (PostgreSQL)
     lot_id: int | None = None  # FK para Lot
+    is_active: bool = True     # Soft delete flag
 
 
 @dataclass(frozen=True)
@@ -27,4 +28,5 @@ class AvisoErrata:
     id: int | None = None           # ID interno (PostgreSQL)
     auction_id: int | None = None   # FK para Auction (se pertence a Auction)
     lot_id: int | None = None       # FK para Lot (se pertence a Lot)
+    is_active: bool = True          # Soft delete flag
 

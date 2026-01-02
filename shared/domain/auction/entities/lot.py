@@ -42,3 +42,5 @@ class Lot:
     # Identificação interna
     id: int | None = None           # ID interno (PostgreSQL)
     auction_id: int | None = None   # FK para Auction
+    is_active: bool = True          # Soft delete flag
+    data_hash: str | None = None    # Hash para detecção de mudanças

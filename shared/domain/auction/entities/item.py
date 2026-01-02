@@ -18,3 +18,4 @@ class Item:
     # Identificação interna
     id: int | None = None      # ID interno (PostgreSQL)
     lot_id: int | None = None  # FK para Lot
+    is_active: bool = True     # Soft delete flag

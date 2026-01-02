@@ -90,3 +90,123 @@ Para definições completas com todos os campos, tipos e documentação, consult
 │  descricao: "[DI 20/1038859-2] MINI MOTO ELETRICA..."           │
 └─────────────────────────────────────────────────────────────────┘
 ```
+
+---
+
+## Fluxo de Sincronização
+
+O módulo `sync.py` sincroniza dados coletados da API RFB com o banco de dados PostgreSQL.
+
+### Características principais
+
+- **Detecção de mudanças**: Hash SHA256 por entidade
+- **Hash scope**: Apenas campos diretos (Lots têm hash próprio)
+- **Sync de Lots**: **Sempre verificar**, mesmo se Auction não mudou
+- **Histórico**: Tabela `auction_audit` separada
+- **Erros**: Campos `error_status`/`error_message` + tabela `sync_errors`
+- **Remoção**: Soft delete (`is_active`)
+- **Batch tracking**: UUID `sync_batch_id` para rastreamento
+
+### Fluxograma
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    sync_all() iniciado                          │
+│                    (gera batch_id UUID)                         │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│        Coletar auctions disponíveis da API RFB                  │
+│        collector.fetch_available_auctions()                     │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│        Comparar com auctions ativos no banco                    │
+│        storage.get_active_auction_edles()                       │
+│                                                                 │
+│        new_edles = rfb - stored                                 │
+│        existing_edles = rfb ∩ stored                            │
+│        removed_edles = stored - rfb                             │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+          ┌───────────────────┼───────────────────┐
+          ▼                   ▼                   ▼
+    ┌───────────┐       ┌───────────┐       ┌───────────┐
+    │   NOVOS   │       │ EXISTENTES│       │ REMOVIDOS │
+    └───────────┘       └───────────┘       └───────────┘
+          │                   │                   │
+          ▼                   ▼                   ▼
+┌─────────────────┐  ┌───────────────────┐  ┌─────────────────┐
+│ Para cada novo: │  │ Para cada um:     │  │ soft_delete     │
+│                 │  │                   │  │ (is_active=F)   │
+│ 1. fetch_details│  │ 1. fetch_details  │  │                 │
+│ 2. calc hash    │  │ 2. calc hash      │  │ Registra audit  │
+│ 3. INSERT       │  │ 3. hash diferente?│  │ action='DELETE' │
+│ 4. audit CREATE │  │    SIM: UPDATE    │  │                 │
+│                 │  │    audit UPDATE   │  │                 │
+│ 5. sync_lots    │  │                   │  │                 │
+│    (novos)      │  │ 4. SEMPRE         │  │                 │
+│                 │  │    sync_lots ◄────┼──┼── IMPORTANTE!   │
+└─────────────────┘  └───────────────────┘  └─────────────────┘
+          │                   │
+          └─────────┬─────────┘
+                    ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                      sync_lots()                                │
+│                                                                 │
+│   Para cada lot, compara rfb_id:                                │
+│   - Novo: INSERT + audit + sync_items                           │
+│   - Existente: compara hash → UPDATE se diferente               │
+│                SEMPRE sync_items                                │
+│   - Removido: soft_delete                                       │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                      sync_items()                               │
+│                                                                 │
+│   Para cada item (replace strategy):                            │
+│   - DELETE todos os items existentes do lot                     │
+│   - INSERT todos os items novos                                 │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│   Retorna SyncResult com contadores:                            │
+│   - auctions: created, updated, deleted, errors                 │
+│   - lots: created, updated, deleted, errors                     │
+│   - items: synced                                               │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Tratamento de Erros
+
+Quando `LotUnavailableError` ou outras exceções ocorrem:
+
+1. Atualiza `error_status` e `error_message` na entidade
+2. Registra em `sync_errors` com stack_trace
+3. Registra audit com `action='ERROR'`
+4. Continua processando outras entidades
+
+### Exemplo de uso
+
+```python
+from config.rfb_auction_tools.settings import get_settings
+from apps.rfb_auction_tools.collectors import RFBAuctionCollector
+from apps.rfb_auction_tools.sync import RFBAuctionSync
+from shared.adapters.outbound.postgres_auction_storage import PostgresAuctionStorage
+
+settings = get_settings()
+collector = RFBAuctionCollector(settings)
+storage = PostgresAuctionStorage()
+
+sync = RFBAuctionSync(collector, storage)
+result = sync.sync_all(fetch_lot_details=True)
+
+print(f"Batch: {result.batch_id}")
+print(f"Auctions: {result.auctions}")
+print(f"Lots: {result.lots}")
+print(f"Items: {result.items}")
+```

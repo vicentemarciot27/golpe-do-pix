@@ -45,3 +45,5 @@ class Auction:
     avisos_erratas: list[AvisoErrata] = field(default_factory=list)  # avisosErratas
     # Identificação interna
     id: int | None = None      # ID interno (PostgreSQL)
+    is_active: bool = True     # Soft delete flag
+    data_hash: str | None = None  # Hash para detecção de mudanças
