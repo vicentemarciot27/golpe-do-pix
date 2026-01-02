@@ -32,7 +32,7 @@ class Auction:
     data_abertura_lances: datetime    # dataAberturaLances
     # Contadores
     total_lotes: int           # lotes - quantidade total de lotes
-    mercadorias_apreendidas: bool = False  # mercadoriasApreendidas
+    mercadorias_apreendidas: bool | None = None  # mercadoriasApreendidas
     data_classificacao: datetime | None = None  # dataClassificacao (só em details)
     # Metadados (disponíveis em auction_details)
     forma_contato: str | None = None         # formaContato
