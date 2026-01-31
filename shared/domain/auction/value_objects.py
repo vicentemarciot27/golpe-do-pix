@@ -1,17 +1,50 @@
 from dataclasses import dataclass
+from datetime import datetime
 from enum import Enum
+
+
+@dataclass(frozen=True)
+class LotImage:
+    """Imagem associada a um lote."""
+    rfb_id: int         # imllNrSq - ID da imagem na RFB
+    url: str            # src - URL da imagem em tamanho original
+    thumbnail_url: str  # min - URL da miniatura
+    width: int          # w
+    height: int         # h
+    is_featured: bool = False  # destaque
+    # Identificação interna
+    id: int | None = None      # ID interno (PostgreSQL)
+    lot_id: int | None = None  # FK para Lot
+    is_active: bool = True     # Soft delete flag
+
+
+@dataclass(frozen=True)
+class AvisoErrata:
+    """Aviso ou errata publicado para auction/lot."""
+    data: datetime      # data - ex: "2025-12-10 07:28"
+    codigo_tipo: int    # codigoTipo - 1=Aviso, 2=Errata
+    tipo: str           # tipo - "Aviso" ou "Errata"
+    texto: str          # texto - conteúdo do aviso
+    # Identificação interna
+    id: int | None = None           # ID interno (PostgreSQL)
+    auction_id: int | None = None   # FK para Auction (se pertence a Auction)
+    lot_id: int | None = None       # FK para Lot (se pertence a Lot)
+    is_active: bool = True          # Soft delete flag
+
 
 class NcmMode(Enum):
     FIXED = "fixed"
     VARIABLE = "variable"
     CUSTOM_FIXED = "custom_fixed"
 
+
 class SimplesNacionalMode(Enum):
     FIXED = "fixed"
     VARIABLE = "variable"
     CUSTOM_FIXED = "custom_fixed"
 
-@dataclass(frozen=True)  # frozen=True garante imutabilidade, o que significa que o objeto não pode ser modificado depois de criado
+
+@dataclass(frozen=True)
 class NcmTaxRates:
     ipi: float
     ii: float
@@ -25,6 +58,7 @@ class NcmTaxRates:
             if not 0 <= value <= 1:
                 raise ValueError(f"{field_name} must be between 0 and 1")
 
+
 @dataclass(frozen=True)
 class NcmTaxesInReais:
     ipi: float
@@ -33,6 +67,7 @@ class NcmTaxesInReais:
     cbs: float
     ibs: float
     total: float
+
 
 @dataclass(frozen=True)
 class SimplesNacionalTax:
@@ -52,6 +87,7 @@ class SimplesNacionalTax:
         # Fórmula progressiva: (RBT12 * Aliq - PD) / RBT12
         return (revenue_last_12months * self.rate - self.deducao) / revenue_last_12months
 
+
 @dataclass(frozen=True)
 class MaxBidItemCalculationInput:
     ml_price_avg: float
@@ -62,6 +98,7 @@ class MaxBidItemCalculationInput:
     ncm: str
     cost_risk_buffer_rate: float
     qty_item: int = 1
+
 
 @dataclass(frozen=True)
 class MaxBidItemCalculationOutput:
