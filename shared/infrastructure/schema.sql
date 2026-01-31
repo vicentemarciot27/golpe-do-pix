@@ -5,16 +5,6 @@
 -- ECOMMERCE DOMAIN
 -- =========================
 
-DROP TABLE IF EXISTS products;
-
-DROP FUNCTION IF EXISTS update_updated_at_column;
-DROP TRIGGER IF EXISTS update_products_updated_at ON products;
-
-DROP INDEX IF EXISTS idx_products_url;
-DROP INDEX IF EXISTS idx_products_extraction_date;
-DROP INDEX IF EXISTS idx_products_price;
-
-
 -- Products table (stores scraped product data from ecommerce platforms)
 CREATE TABLE IF NOT EXISTS products (
     id VARCHAR(255) PRIMARY KEY,
