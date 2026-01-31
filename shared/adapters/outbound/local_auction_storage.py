@@ -66,7 +66,7 @@ class LocalRevenueStorage(RevenueStorage):
         """Retorna taxa do Simples Nacional baseada na receita"""
         # Se receita é 0, retorna taxa default (modo fixed)
         if revenue_last_12months == 0.0:
-            return self.default_tax
+            return self.default_simples_nacional_tax
         
         # Busca faixa apropriada
         for limite, aliquota, deducao in self.simples_brackets:
@@ -78,5 +78,5 @@ class LocalRevenueStorage(RevenueStorage):
 
     def get_fixed_simples_nacional_tax(self) -> SimplesNacionalTax:
         """Retorna taxa fixa default"""
-        return self.default_tax
+        return self.default_simples_nacional_tax
 
