@@ -21,11 +21,14 @@ class Product:
     price: float
     currency: Currency
     is_installment_payment_available: bool
-    max_installments: int | None # More pythonic, you could do this with Optional[int]
-    is_free_shipping: bool 
-    rating: int | None # the extracted rating is generally null since it's not always available
-    rating_amount: int | None # the extracted amount is generally null since it's not always available
-    sold_amount: int | None # the extracted amount is generally null since it's not always available
-    # metadata
+    max_installments: int | None
+    is_free_shipping: bool
+    rating: int | None
+    rating_amount: int | None
+    sold_amount: int | None
     extraction_date: datetime
+    # v2 fields for price analysis
+    base_product_id: int | None = None
+    search_key: str | None = None
+    is_relevant: bool | None = None
     version: int = 1
