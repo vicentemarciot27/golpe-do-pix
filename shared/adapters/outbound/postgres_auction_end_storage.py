@@ -37,8 +37,6 @@ class PostgresAuctionEndStorage(AuctionEndStorage):
     def _ensure_schema(self) -> None:
         """Ensure the auction_end schema is applied."""
         try:
-            ensure_schema(self.pool, "auction_end")
-            ensure_schema(self.pool, "auction_rfb")
             ensure_schema(self.pool, "")
         except Exception:
             # Ignore errors - schema might already exist or have permission issues

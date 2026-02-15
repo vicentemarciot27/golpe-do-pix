@@ -356,27 +356,43 @@ class AuctionEndPDFParser:
         self, lot_results: list[LotResult], tables: list[list[list[str]]]
     ) -> None:
         """Enrich lot results with data from extracted tables."""
+        # Create a mapping of lot_number to LotResult for easy lookup
+        lot_map = {lot.lot_number: lot for lot in lot_results}
+
+        # Track current lot based on lots that have winners (only they have tables)
+        lots_with_winners = [lot for lot in lot_results if lot.has_winner]
         current_lot_idx = 0
 
         for table in tables:
             if not table or len(table) < 2:
                 continue
 
-            # Identify table type by header row
+            # Identify table type by checking both header row and second row
             header = [str(cell).lower() if cell else "" for cell in table[0]]
             header_str = " ".join(header)
 
+            # Check second row too (pdfplumber sometimes puts section title in row 0)
+            second_row = [str(cell).lower() if cell else "" for cell in table[1]] if len(table) > 1 else []
+            second_row_str = " ".join(second_row)
+
             if "proponente" in header_str and "status" in header_str:
-                # This is a proposals table
-                if current_lot_idx < len(lot_results):
+                # This is a proposals table - assign to current lot with winner
+                if current_lot_idx < len(lots_with_winners):
                     self._parse_proposals_table(
-                        lot_results[current_lot_idx], table
+                        lots_with_winners[current_lot_idx], table
                     )
-            elif "seq" in header_str and "lance" in header_str:
-                # This is a bid history table
-                if current_lot_idx < len(lot_results):
-                    self._parse_bids_table(lot_results[current_lot_idx], table)
-                    # Move to next lot after bid history
+            elif ("historico" in header_str or "histórico" in header_str) and "lance" in header_str:
+                # This is a bid history table (header has "Histórico de Lances")
+                # Skip if table has fewer than 3 rows (header + subheader + at least 1 data row)
+                if len(table) >= 3 and current_lot_idx < len(lots_with_winners):
+                    self._parse_bids_table(lots_with_winners[current_lot_idx], table)
+                    # Move to next lot with winner after bid history
+                    current_lot_idx += 1
+            elif "seq" in second_row_str and "lance" in second_row_str:
+                # Alternative: second row has "Seq." and "Lance" (real column headers)
+                if len(table) >= 3 and current_lot_idx < len(lots_with_winners):
+                    self._parse_bids_table(lots_with_winners[current_lot_idx], table)
+                    # Move to next lot with winner after bid history
                     current_lot_idx += 1
 
     def _parse_proposals_table(

@@ -19,6 +19,7 @@ class RFBAuctionSettings(BaseSettings):
     class Config:
         env_prefix = "RFB_AUCTION_"
         env_file_encoding = "utf-8"
+        extra = "ignore"  # Ignora campos extras do .env de outros módulos
 
 
 def get_settings(env_file: Optional[str] = None) -> RFBAuctionSettings:
