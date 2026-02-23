@@ -14,6 +14,7 @@ Execute:
   python scraper_playwright.py
 """
 
+import asyncio
 import logging
 import os
 import platform
@@ -29,6 +30,11 @@ from playwright.sync_api import (
     ElementHandle,
     TimeoutError as PlaywrightTimeoutError,
 )
+
+# Fix for Windows + Streamlit: Use ProactorEventLoop instead of SelectorEventLoop
+if platform.system() == "Windows":
+    if isinstance(asyncio.get_event_loop_policy(), asyncio.WindowsSelectorEventLoopPolicy):
+        asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 
 if TYPE_CHECKING:
     from pyvirtualdisplay import Display
@@ -344,6 +350,17 @@ class MercadoLivreScraper:
 
         self.setup_virtual_display()
 
+        # Fix Windows event loop policy before Playwright
+        if platform.system() == "Windows":
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_closed():
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+            except RuntimeError:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+
         try:
             with sync_playwright() as p:
                 launch_args = [
@@ -417,6 +434,17 @@ class MercadoLivreScraper:
                 browser.close()
                 return produtos
 
+        except NotImplementedError as e:
+            logger.error(
+                "Erro do Playwright no Windows com Streamlit. "
+                "Tente reiniciar o Streamlit ou rodar o scraper fora do Streamlit.",
+                exc_info=True
+            )
+            raise RuntimeError(
+                "Playwright não funciona corretamente no Windows com Streamlit. "
+                "Soluções: (1) Reinicie o Streamlit, (2) Use WSL2, ou "
+                "(3) Execute o scraper em um script separado."
+            ) from e
         except Exception as e:
             logger.error(f"Erro durante o scraping: {e}", exc_info=True)
             return []

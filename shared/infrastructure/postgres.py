@@ -1,8 +1,49 @@
 import os
+from pathlib import Path
 from psycopg2 import pool
 
 
-class PostgresConnectionPool: # TODO: Implementar um sistema de migrations para o banco de dados
+def run_schema_file(pool_instance, schema_file: str | Path) -> None:
+    """
+    Run a SQL schema file against the database.
+
+    Args:
+        pool_instance: PostgresConnectionPool instance
+        schema_file: Path to the SQL file
+    """
+    schema_path = Path(schema_file)
+    if not schema_path.exists():
+        raise FileNotFoundError(f"Schema file not found: {schema_path}")
+
+    sql_content = schema_path.read_text(encoding="utf-8")
+
+    with with_postgres_connection(pool_instance) as conn:
+        with conn.cursor() as cur:
+            cur.execute(sql_content)
+
+
+def ensure_schema(pool_instance, schema_name: str) -> None:
+    """
+    Ensure a schema is applied to the database.
+    Looks for schema file in shared/infrastructure/schema_{name}.sql
+
+    Args:
+        pool_instance: PostgresConnectionPool instance
+        schema_name: Name of the schema (e.g., "auction_end")
+    """
+    infrastructure_dir = Path(__file__).parent
+    schema_file = infrastructure_dir / f"schema_{schema_name}.sql"
+
+    if schema_file.exists():
+        try:
+            run_schema_file(pool_instance, schema_file)
+        except Exception as e:
+            # Schema might already exist, that's OK
+            if "already exists" not in str(e).lower():
+                raise
+
+
+class PostgresConnectionPool:
     """
     Simple PostgreSQL connection pool using psycopg2.
     Pass db_config as a dict: {

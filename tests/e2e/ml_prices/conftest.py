@@ -92,16 +92,32 @@ def ensure_database_exists(db_config):
 def db_schema(db_config, ensure_database_exists):
     """
     Setup database schema for tests.
-    Creates the products table if it doesn't exist.
+    Creates the tables if they don't exist.
     """
     conn = psycopg2.connect(**db_config)
-    
+
     try:
         with conn.cursor() as cur:
-            # Create products table
+            # Create base_products table first (for FK reference)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS base_products (
+                    id SERIAL PRIMARY KEY,
+                    name VARCHAR(500) NOT NULL,
+                    brand VARCHAR(255),
+                    model VARCHAR(255),
+                    color VARCHAR(100),
+                    other JSONB DEFAULT '{}',
+                    search_signature VARCHAR(1000),
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+
+            # Create products table with new columns
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS products (
                     id VARCHAR(255) PRIMARY KEY,
+                    base_product_id INTEGER REFERENCES base_products(id) ON DELETE SET NULL,
                     title TEXT NOT NULL,
                     url TEXT NOT NULL UNIQUE,
                     price DECIMAL(10, 2) NOT NULL,
@@ -113,23 +129,29 @@ def db_schema(db_config, ensure_database_exists):
                     rating_amount INTEGER CHECK (rating_amount IS NULL OR rating_amount >= 0),
                     sold_amount INTEGER CHECK (sold_amount IS NULL OR sold_amount >= 0),
                     extraction_date TIMESTAMP NOT NULL,
+                    search_key VARCHAR(500),
+                    is_relevant BOOLEAN,
                     version INTEGER NOT NULL DEFAULT 1,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
-            
-            # Create index on url for faster lookups
+
+            # Create indexes
             cur.execute("""
-                CREATE INDEX IF NOT EXISTS idx_products_url 
+                CREATE INDEX IF NOT EXISTS idx_products_url
                 ON products(url)
             """)
-            
+            cur.execute("""
+                CREATE INDEX IF NOT EXISTS idx_products_base_product_id
+                ON products(base_product_id)
+            """)
+
             conn.commit()
             print("\n✅ Database schema ready")
     finally:
         conn.close()
-    
+
     yield
     # Schema persists after tests
 
@@ -137,26 +159,28 @@ def db_schema(db_config, ensure_database_exists):
 @pytest.fixture(scope="function")
 def clean_database(db_config, db_schema):
     """
-    Clean the products table before each test.
+    Clean the products and base_products tables before each test.
     This ensures test isolation.
     """
     conn = psycopg2.connect(**db_config)
-    
+
     try:
         with conn.cursor() as cur:
             cur.execute("DELETE FROM products")
+            cur.execute("DELETE FROM base_products")
             conn.commit()
             print("\n🧹 Database cleaned")
     finally:
         conn.close()
-    
+
     yield
-    
+
     # Optionally clean after test as well
     conn = psycopg2.connect(**db_config)
     try:
         with conn.cursor() as cur:
             cur.execute("DELETE FROM products")
+            cur.execute("DELETE FROM base_products")
             conn.commit()
     finally:
         conn.close()
@@ -255,10 +279,10 @@ def db_inspector(db_config, clean_database):
             try:
                 with conn.cursor() as cur:
                     cur.execute("""
-                        SELECT id, title, url, price, currency, 
+                        SELECT id, base_product_id, title, url, price, currency,
                                is_installment_payment_available, max_installments,
                                is_free_shipping, rating, rating_amount, sold_amount,
-                               extraction_date, version
+                               extraction_date, search_key, is_relevant, version
                         FROM products
                         ORDER BY created_at DESC
                     """)
@@ -266,17 +290,17 @@ def db_inspector(db_config, clean_database):
                     return [dict(zip(columns, row)) for row in cur.fetchall()]
             finally:
                 conn.close()
-        
+
         def get_product_by_url(self, url: str):
             """Get a specific product by URL."""
             conn = psycopg2.connect(**self.db_config)
             try:
                 with conn.cursor() as cur:
                     cur.execute("""
-                        SELECT id, title, url, price, currency, 
+                        SELECT id, base_product_id, title, url, price, currency,
                                is_installment_payment_available, max_installments,
                                is_free_shipping, rating, rating_amount, sold_amount,
-                               extraction_date, version
+                               extraction_date, search_key, is_relevant, version
                         FROM products
                         WHERE url = %s
                     """, (url,))
