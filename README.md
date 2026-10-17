@@ -2,6 +2,8 @@
 
 Coleção de serviços que ajudam a analisar oportunidades de venda e tributação envolvendo Mercado Livre e Receita Federal.
 
+Disclaimer: o nome "golpe do pix" é só uma brincadeira. Não tem nada de errado sendo feito aqui
+
 ## Apps
 - `apps/max_bid`: calcula o maior lance que ainda mantém a margem desejada.
 - `apps/ml_prices`: analisa preços do Mercado Livre usando regex, filtros e LLMs.
